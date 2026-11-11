@@ -82,13 +82,13 @@ Antes de arrancar el broker, comprueba si existe (no lee la contraseña):
 ```
 
 - **`EXISTE …`:** arranca el broker como en el paso 3. Se conectará solo, sin que el usuario escriba nada, y la salida de su pestaña dirá *"Usando la credencial guardada …"*.
-- **`NO EXISTE …`:** ofrece al usuario crearla, sin pedirle nunca la contraseña a él en el chat. Dile que lo haga en su terminal, con el servidor y el usuario de la conexión, y que borre después esa línea del historial:
+- **`NO EXISTE …`:** **escribe tú en el chat, sin que el usuario lo pida, el comando ya listo** con el servidor y el usuario de la conexión sustituidos (nunca `<servidor>` ni `<usuario>` sin rellenar), en su propio bloque de código `bash` (así el usuario lo copia o lo ejecuta de un clic). Solo la contraseña queda como marcador `LA_CONTRASEÑA`: no se la pidas nunca al usuario en el chat. Ejemplo para `miservidor.database.windows.net` y `mi-usuario`:
 
-  ```
-  cmdkey /generic:sql-broker:<servidor>:<usuario> /user:<usuario> /pass:'LA_CONTRASEÑA'
+  ```bash
+  cmdkey /generic:sql-broker:miservidor.database.windows.net:mi-usuario /user:mi-usuario /pass:'LA_CONTRASEÑA'
   ```
 
-  (comillas simples para que PowerShell no interprete caracteres como `}` o `$`; una `'` dentro de la contraseña se duplica). Más limpio todavía: Panel de control → Administrador de credenciales → Credenciales de Windows → Agregar una credencial genérica, con ese destino, el usuario y la contraseña. Si no la quiere guardar, el broker la pide por teclado como siempre.
+  Añade en una línea que sustituya `LA_CONTRASEÑA` por la real y que borre después esa línea del historial. Después sigue con el broker como en el paso 3 (si no la guarda, el broker la pide por teclado) y no vuelvas a insistir en la credencial en esa conversación. Detalles del comando: (comillas simples para que PowerShell no interprete caracteres como `}` o `$`; una `'` dentro de la contraseña se duplica). Más limpio todavía: Panel de control → Administrador de credenciales → Credenciales de Windows → Agregar una credencial genérica, con ese destino, el usuario y la contraseña. Si no la quiere guardar, el broker la pide por teclado como siempre.
 - **Si el usuario quiere ver el valor guardado:** el Administrador de credenciales no tiene botón para mostrarla en las credenciales de Windows. Dale este script, adaptado, para que lo ejecute **él** en su terminal (nunca lo ejecutes tú ni le pidas el resultado):
 
   ```powershell
