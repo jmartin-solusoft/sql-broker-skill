@@ -7,6 +7,9 @@ Funciona con un *broker* local: tú arrancas `sql-broker.ps1` en tu terminal, la
 - Por defecto es **solo lectura** (con el usuario `ai-data-reader`, o sin `-AllowWrites`).
 - Las escrituras requieren un usuario con permisos, `-AllowWrites` y confirmación explícita en cada sentencia.
 - Máximo 1000 filas por consulta y 120 s de tiempo límite.
+- **Lista blanca T-SQL** en modo lectura: solo una sentencia `SELECT`/`WITH`, sin `INTO`, `sp_`/`xp_`, DML ni DDL.
+- **Clasificación de datos:** `scan-schema.ps1` propone qué columnas son sensibles (solo nombres, tipos y recuentos); una vez revisada, el broker rechaza consultas que las nombran y oculta esas columnas en los resultados. `make-deny-script.ps1` genera el `DENY SELECT` equivalente para la base de datos.
+- **Registro de auditoría** encadenado con hash (`verify-audit.ps1` lo verifica), cierre por inactividad y purga de resultados antiguos.
 
 ## Requisitos
 
@@ -29,6 +32,11 @@ Debe quedar así:
 .claude\skills\sql-broker\scripts\sql-broker.ps1
 .claude\skills\sql-broker\scripts\run-query.ps1
 .claude\skills\sql-broker\scripts\check-credential.ps1
+.claude\skills\sql-broker\scripts\sql-broker-lib.ps1      (funciones compartidas)
+.claude\skills\sql-broker\scripts\scan-schema.ps1         (propuesta de clasificación)
+.claude\skills\sql-broker\scripts\make-deny-script.ps1
+.claude\skills\sql-broker\scripts\verify-audit.ps1
+.claude\skills\sql-broker\scripts\selftest.ps1            (pruebas sin conexión)
 ```
 
 Reinicia Claude Code y escribe `/sql-broker`.

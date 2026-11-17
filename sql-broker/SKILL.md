@@ -24,7 +24,7 @@ El usuario de base de datos decide qué se puede hacer. El broker añade su prop
 | Solo leer (lo normal) | `ai-data-reader` | sin `-AllowWrites` | **SOLO LECTURA** |
 | Modificar datos o esquema | otro usuario con permisos, el que indique el usuario | con `-AllowWrites` | **LECTURA Y ESCRITURA** |
 
-En **SOLO LECTURA**, el broker rechaza `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `DROP`, `ALTER`, `CREATE`, `TRUNCATE`, `EXEC`, `GRANT`, `REVOKE`, `DENY`, `BACKUP` y `RESTORE` antes de enviarlos.
+En **SOLO LECTURA**, el broker aplica una **lista blanca** antes de enviar nada: la consulta debe ser **una sola sentencia** que empiece por `SELECT` o `WITH`, y no puede contener `INTO`, `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `DROP`, `ALTER`, `CREATE`, `TRUNCATE`, `EXEC`, `GRANT`, `REVOKE`, `DENY`, `BACKUP`, `RESTORE`, `OPENROWSET`, `OPENQUERY`, `OPENDATASOURCE`, `BULK`, `WAITFOR`, `DBCC`, `sp_*`/`xp_*` ni `NEXT VALUE FOR` (los comentarios y los textos entre comillas no cuentan). Si necesitas varias sentencias, lanza varias consultas. **Es una barrera adicional, no la protección real:** la protección real son los permisos del usuario de base de datos.
 
 Con `ai-data-reader` el modo es **siempre** SOLO LECTURA, aunque se pase `-AllowWrites`.
 
@@ -34,14 +34,15 @@ Cuando haga falta escribir, pregunta qué usuario usar si no está claro. No des
 
 ## Scripts
 
-`<SKILL_DIR>` es la carpeta de esta skill, normalmente `C:\Users\<usuario>\.claude\skills\sql-broker`. Al ejecutar cualquier comando, sustitúyela por la ruta absoluta real y literal (por ejemplo, en la línea que se lanza en la terminal del usuario no se pueden usar variables).
-
 Están en `<SKILL_DIR>\scripts\`:
 
 - `sql-broker.ps1 -Server <srv> -Database <bd> -User <usuario> [-AllowWrites]`: mantiene la conexión abierta. Lo arranca el usuario en el panel Terminal. Busca primero la credencial `sql-broker:<servidor>:<usuario>` en el Administrador de credenciales; si no existe, pide la contraseña por teclado.
-- `check-credential.ps1 -Server <srv> -User <usuario>`: dice si esa credencial existe (`EXISTE …` / `NO EXISTE …`). No lee ni muestra la contraseña.
+- `check-credential.ps1 -Server <srv> -User <usuario>`: dice si esa credencial existe (`EXISTE …` / `NO EXISTE …`). Si no existe, imprime además el comando `cmdkey` ya montado, que hay que ofrecer al usuario (paso 1 bis). No lee ni muestra la contraseña.
 - `run-query.ps1 -Server <srv> -Database <bd> [-User <usuario>] -Sql "<consulta>"`: envía una consulta y muestra el estado y la tabla de resultados. Si no se indica `-User`, usa `ai-data-reader`.
-- `run-query.ps1 -Server <srv> -Database <bd> [-User <usuario>] -Status`: comprueba si hay un broker conectado para ese usuario y en qué modo está.
+- `run-query.ps1 -Server <srv> -Database <bd> [-User <usuario>] -Status`: comprueba si hay un broker conectado para ese usuario, en qué modo está y qué clasificación de datos aplica. `run-query` **borra el CSV y el estado en cuanto los lee**: no quedan resultados en disco.
+- `scan-schema.ps1 -Server <srv> -Database <bd> [-User ai-data-reader] [-Contenido]`: propone qué columnas son sensibles sin leer valores (solo nombres, tipos y recuentos). Necesita el broker de lectura conectado. Deja `<bd>.propuesta.json` en `%USERPROFILE%\.sql-broker\classification\<servidor>\`; **la propuesta no se aplica hasta que el usuario la revise** (ver "Clasificación de datos").
+- `make-deny-script.ps1 -Server <srv> -Database <bd> [-Usuario ai-data-reader]`: genera el `.sql` con los `DENY SELECT` de una clasificación revisada, para que lo ejecute una persona con permisos. No se conecta a nada.
+- `verify-audit.ps1`: comprueba que el registro de actividad no se ha alterado. `selftest.ps1`: pruebas de la lista blanca y del registro, sin base de datos (`powershell.exe -NoProfile -ExecutionPolicy Bypass -File …\selftest.ps1`).
 
 Cada usuario tiene su propio broker y su propia cola, en `%USERPROFILE%\.sql-broker\<servidor>\<bd>\<usuario>\`:
 - `inbox\`: consultas pendientes;
@@ -54,6 +55,9 @@ Así puede haber a la vez un broker de lectura y otro de escritura.
 - Devuelve como máximo 1000 filas por consulta (`-MaxRows`).
 - Cada consulta tiene un tiempo límite de 120 s (`-CommandTimeout`).
 - En modo escritura no se reintenta automáticamente una sentencia si la conexión se corta: podría haberse aplicado ya.
+- **Cierre por inactividad:** el broker se cierra solo tras 30 min sin consultas (10 min en escritura). Si `run-query` dice `BROKER NO CONECTADO`, vuelve a arrancarlo (paso 3). Se ajusta con `-IdleMinutes`.
+- Los resultados que nadie recoja se borran a las 2 h (`-ResultRetentionHours`).
+- **Registro de actividad:** cada arranque, consulta (aceptada, rechazada o con error) y cierre queda en `%USERPROFILE%\.sql-broker\_audit\audit-AAAAMM.jsonl`, con fecha, usuario de BD, modo, texto y hash de la consulta, filas y duración, nunca los datos devueltos. Cada línea lleva el hash de la anterior (`verify-audit.ps1`). No borres ni edites esos ficheros.
 
 ## Flujo
 
@@ -71,7 +75,9 @@ Conexiones conocidas:
 |---|---|---|---|---|
 | `miservidor.database.windows.net` | `mibasedatos` | `ai-data-reader` | Solo lectura | Ejemplo: sustituye por tus propios servidor, base de datos y usuario |
 
-### 1 bis. Credencial guardada en Windows (opcional, evita escribir la contraseña)
+### 1 bis. Credencial guardada en Windows: comprobar SIEMPRE antes de arrancar el broker
+
+> **Regla obligatoria.** Antes de arrancar cualquier broker, ejecuta `check-credential.ps1`. Si dice `NO EXISTE`, tu siguiente mensaje **debe incluir el comando `cmdkey` para guardarla**, en su bloque `bash`, aunque el usuario no lo pida y aunque la conexión sea de escritura. Lo opcional es que el usuario la guarde; ofrecérselo **no** lo es. Si no lo has ofrecido, no has terminado este paso.
 
 El broker lee la contraseña de una credencial genérica del Administrador de credenciales de Windows cuyo destino (Dirección de red o Internet) es exactamente `sql-broker:<servidor>:<usuario>`, por ejemplo `sql-broker:miservidor.database.windows.net:ai-data-reader`. Se lee dentro del proceso del broker y no se imprime. Aplica a cualquier base de datos de ese servidor y usuario.
 
@@ -82,7 +88,7 @@ Antes de arrancar el broker, comprueba si existe (no lee la contraseña):
 ```
 
 - **`EXISTE …`:** arranca el broker como en el paso 3. Se conectará solo, sin que el usuario escriba nada, y la salida de su pestaña dirá *"Usando la credencial guardada …"*.
-- **`NO EXISTE …`:** **escribe tú en el chat, sin que el usuario lo pida, el comando ya listo** con el servidor y el usuario de la conexión sustituidos (nunca `<servidor>` ni `<usuario>` sin rellenar), en su propio bloque de código `bash` (así el usuario lo copia o lo ejecuta de un clic). Solo la contraseña queda como marcador `LA_CONTRASEÑA`: no se la pidas nunca al usuario en el chat. Ejemplo para `miservidor.database.windows.net` y `mi-usuario`:
+- **`NO EXISTE …`:** el script ya imprime el comando; **escríbelo tú en el chat, sin que el usuario lo pida, ya listo** con el servidor y el usuario de la conexión sustituidos (nunca `<servidor>` ni `<usuario>` sin rellenar), en su propio bloque de código `bash` (así el usuario lo copia o lo ejecuta de un clic). Solo la contraseña queda como marcador `LA_CONTRASEÑA`: no se la pidas nunca al usuario en el chat. Ejemplo para `miservidor.database.windows.net` y `mi-usuario`:
 
   ```bash
   cmdkey /generic:sql-broker:miservidor.database.windows.net:mi-usuario /user:mi-usuario /pass:'LA_CONTRASEÑA'
@@ -111,6 +117,8 @@ Si responde `PID … Conectado … Modo …` y el modo es el que necesitas, pasa
 
 ### 3. Arrancar el broker en la terminal del usuario
 
+**Antes de lanzarlo, comprueba la credencial (paso 1 bis):** ejecuta `check-credential.ps1` para ese servidor y usuario. Si dice `NO EXISTE`, el script imprime el comando `cmdkey` ya montado: inclúyelo en tu mensaje, en un bloque `bash`, sustituyendo solo la contraseña por `LA_CONTRASEÑA`. Puedes lanzar el broker en ese mismo turno (el usuario teclea la contraseña ahí si no la guarda), pero no sin haberlo ofrecido.
+
 Lánzalo con `run_in_terminal`. La línea tiene que ser literal: sin variables, sin pipes y con la ruta completa.
 
 Solo lectura:
@@ -127,6 +135,16 @@ Después, si **no** hay credencial guardada (paso 1 bis), dile al usuario que va
 
 **No leas esa pestaña con `read_terminal`.** El usuario escribe ahí una contraseña y el clasificador del modo automático bloquea esa lectura. Para saber si ya está conectado, usa `-Status` (paso 2).
 
+### 3 bis. Clasificación de datos: mirarla antes de consultar
+
+Los resultados de las consultas llegan a Claude, es decir, salen del equipo hacia un tercero. Por eso cada base de datos puede tener un fichero de clasificación `%USERPROFILE%\.sql-broker\classification\<servidor>\<bd>.json` con las columnas sensibles. `-Status` dice en la línea `Clasificacion` en qué estado está:
+
+- **`aplicada: N entradas`:** el broker rechaza las consultas que nombran una columna sensible de una tabla clasificada (o cualquier columna de una tabla marcada con `"column": "*"`) y oculta como `[OCULTO]` las columnas del resultado cuyo nombre figura como sensible. **Antes de lanzar una consulta, lee ese fichero.** Si la consulta toca una columna sensible, **no la lances**: díselo al usuario y que lo consulte él en SSMS. No intentes esquivarlo con alias, `LEN()`, `LEFT()` ni expresiones: el enmascarado va por nombre y eso sería saltarse el control. La barrera fiable es el `DENY SELECT` en la base de datos (`make-deny-script.ps1`).
+- **`pendiente de revisar`:** hay propuesta pero no se aplica. Trata como sensibles las columnas de la propuesta (`<bd>.propuesta.json`) y avisa al usuario de que falta revisarla.
+- **`ninguna`:** ofrece al usuario ejecutar `scan-schema.ps1` (con `-Contenido` si quiere un análisis por contenido: solo devuelve recuentos). Mientras tanto, evita pedir columnas que por su nombre parezcan datos personales (DNI, email, teléfono, IBAN, nombres, direcciones, contraseñas, texto libre) y no muestres más filas de las necesarias.
+
+**Revisión:** el escáner propone y la persona decide. Debe abrir `<bd>.propuesta.json`, borrar lo que no sea sensible, añadir lo que falte, guardarlo como `<bd>.json` y poner `"reviewed": true`, con `reviewedBy` y `reviewedOn`. **No marques tú `reviewed` como true.**
+
 ### 4. Lanzar consultas
 
 ```powershell
@@ -141,6 +159,7 @@ Ponle a la herramienta un timeout de unos 180 s, porque `run-query` espera hasta
 - **`BROKER NO CONECTADO`:** el usuario lo cerró o se cayó. Vuelve al paso 3.
 
 Buenas prácticas:
+- Pide solo las columnas y filas que necesites (minimización): evita `SELECT *` sobre tablas con datos personales.
 - Usa `TOP` por defecto en tablas grandes.
 - Para explorar, empieza por `INFORMATION_SCHEMA.TABLES` y `INFORMATION_SCHEMA.COLUMNS`.
 - Cualifica las tablas con su esquema (`dbo.`).
@@ -156,7 +175,7 @@ Una escritura en una base de datos real no se puede deshacer desde aquí. Por es
 
 ### 5. Al terminar
 
-Recuerda al usuario que cierre la pestaña del broker con **Ctrl-C**, sobre todo si es un broker de escritura. Mientras esté abierta, cualquier proceso de su equipo que deje un `.sql` en la cola puede usar esa conexión.
+Recuerda al usuario que cierre la pestaña del broker con **Ctrl-C**, sobre todo si es un broker de escritura (se cierra solo por inactividad, pero no hay que esperar). Mientras esté abierta, cualquier proceso de su equipo que deje un `.sql` en la cola puede usar esa conexión: la cola no autentica a quien pide, y es un riesgo residual asumido y documentado.
 
 ## Alternativa sin contraseña: Entra ID
 

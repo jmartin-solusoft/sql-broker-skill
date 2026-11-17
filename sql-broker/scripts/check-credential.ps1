@@ -1,6 +1,7 @@
 # Comprueba si existe la credencial generica "sql-broker:<servidor>:<usuario>" en el Administrador de credenciales.
 # Solo dice si existe y con que usuario esta guardada: NO lee ni muestra la contrasena.
-# Salida: "EXISTE <destino> (usuario <usuario>)" (codigo 0) o "NO EXISTE <destino>" (codigo 1).
+# Salida: "EXISTE <destino> (usuario <usuario>)" (codigo 0) o "NO EXISTE <destino>" seguido del comando cmdkey
+# ya montado para guardarla (codigo 1).
 param(
     [Parameter(Mandatory)][string]$Server,
     [Parameter(Mandatory)][string]$User
@@ -34,4 +35,9 @@ $target = "sql-broker:${Server}:${User}"
 $stored = [SqlBrokerCredCheck]::UserOf($target)
 if ($null -ne $stored) { Write-Host "EXISTE $target (usuario $stored)"; exit 0 }
 Write-Host "NO EXISTE $target"
+# Si no existe, el propio script deja listo el comando para guardarla. Claude debe ofrecerselo al usuario
+# en un bloque de codigo bash, sin que el usuario lo pida (ver "1 bis" en SKILL.md). La contrasena nunca se pide en el chat.
+Write-Host ""
+Write-Host "OFRECER AL USUARIO (obligatorio, en un bloque bash, antes de arrancar el broker; solo sustituye LA_CONTRASENA y borrala del historial):"
+Write-Host "cmdkey /generic:$target /user:$User /pass:'LA_CONTRASENA'"
 exit 1
